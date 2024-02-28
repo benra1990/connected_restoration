@@ -188,7 +188,7 @@ duplicated(clust_countries$ISO3)#check if there are duplicated country codes
 
 pledges_order<-clust_countries%>%
   group_by(cluster)%>%
-  summarise(promedio=mean(pledges))%>%
+  summarise(promedio=mean(pledges),sd=sd(pledges))%>%
   arrange(promedio)#sort increasing order
 pledges_order
 #add new column with new order from largest pledge to lowest pledge to guide all analyses later on
@@ -292,45 +292,49 @@ ggplot(aes(x=factor({{rest_var}}, levels={{rest_var}}), y={{var}}, color={{rest_
   coord_flip()+
   scale_y_continuous(breaks=seq(-2,2,0.5), labels=seq(-2,2,0.5))+
   scale_x_discrete(limits=rev)+
-  scale_color_manual(breaks=c("NPP","HANPP","Non-productive areas", "Protected areas IUCN (IV-VI)","Protected areas IUCN (I-III)","Forest share", "Agriculture share", "Technology", "Life expectancy", "Education", "Income", "Donations (recipient)","Population Growth", "GDP Growth","Population density","Voice", "Political stability", "Regulatory quality", "Tenure security", "Indigenous population", "Indigenous land"), values=c("green","green","green","green","green","green","green","purple","purple","purple","purple","purple","purple","purple","purple","red","red", "red","red", "red","red"))+#,"Donations (donor)"
+  scale_color_manual(breaks=c("NPP","HANPP","Non-productive areas", "Protected areas IUCN (IV-VI)","Protected areas IUCN (I-III)","Forest share", "Agriculture share", "Technology", "Life expectancy", "Education", "Income", "Donations (recipient)","Population Growth", "GDP Growth","Population density","Voice", "Political stability", "Regulatory quality", "Tenure security", "Indigenous population", "Indigenous land"), values=c("#006CD1","#006CD1","#006CD1","#006CD1","#006CD1","#006CD1","#006CD1","purple","purple","purple","purple","purple","purple","purple","purple","#994F00","#994F00", "#994F00","#994F00", "#994F00","#994F00"))+#,"Donations (donor)"
   ggtitle(mytitle) +
   theme_minimal()+
   theme(legend.position="none") +
   labs(x="", y ="z-score")
+   
 }
 
 
-Arc1<-Arc_barplot_function(barplot_db1,rest_var,archetype1, "(1) Western Africa, Central America, 
-      Bangladesh - high pledges")+
+Arc1<-Arc_barplot_function(barplot_db1,rest_var,archetype1,"(1) Western Africa, Central America, Bangladesh, 
+      high pledges [mean=28.7%,sd=25.6]")+
  geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid")
+
  
 Arc1
 
-Arc2<-Arc_barplot_function(barplot_db1,rest_var,archetype2, "(2) All geographies, high pledges")+
+Arc2<-Arc_barplot_function(barplot_db1,rest_var,archetype2, "(2) All geographies, 
+      high pledges [mean=9.55%, sd=11.2]")+
    geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid")
 
  
 Arc2
 
-Arc3<-Arc_barplot_function(barplot_db1,rest_var,archetype3, "(3) Africa and Asia, high pledges")+
+Arc3<-Arc_barplot_function(barplot_db1,rest_var,archetype3, "(3) Africa and Asia, 
+      high pledges [mean=9.03%, sd=9.99]")+
   geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid") 
 
 Arc3
 
 Arc4<-Arc_barplot_function(barplot_db1,rest_var,archetype4, "(4) Small African and Asian states,
-      moderate pledges")+
+      moderate pledges [mean=6.05%, sd=14.9]")+
   geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid")
 
 Arc4
 
 Arc5<-Arc_barplot_function(barplot_db1,rest_var,archetype5, "(5) North Africa and Middle East,
-      moderate pledges")+
+      moderate pledges [4.65%, sd=9.61]")+
   geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid")
   
 Arc5
 
 Arc6<-Arc_barplot_function(barplot_db1,rest_var,archetype6, "(6) Eastern Europe and Caribbean, 
-      moderate pledges")+
+      moderate pledges [3.8%, sd=5.76]")+
   geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid")
 
   
@@ -338,21 +342,21 @@ Arc6
 
 
 Arc7<-Arc_barplot_function(barplot_db1,rest_var,archetype7, "(7) Canada, Scandinavia, Australia/New Zealand
-      modest pledges")+
+      modest pledges [1.61%, sd=2.77]")+
   geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid") 
 
  
 Arc7
 
 Arc8<-Arc_barplot_function(barplot_db1,rest_var,archetype8, "(8) Small European and Caribbean states, 
-      modest pledges")+
+      modest pledges [1.26%, sd=3.40]")+
   geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid")
   
 Arc8
 
 
 Arc9<-Arc_barplot_function(barplot_db1,rest_var,archetype9, "(9) Western Europe, South Korea, Japan, 
-      very low pledges")+
+      very low pledges [0.37%, sd=1.64]")+
   geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid")
 
 Arc9
@@ -366,6 +370,7 @@ str(box_pledges)
 
 #combine all barplots
 grid.arrange(Arc1,Arc2,Arc3,Arc4, Arc5,Arc6, Arc7, Arc8, Arc9, nrow=3, ncol=3, top="") 
+
 
 
 ####boxplots contrasting embodied hanpp with each archetype####
@@ -390,7 +395,7 @@ scatter_data<-box_pledges %>%
 colnames(scatter_data)[4]<-"pledges_ha"
 
 #add column with archetype names
-box_pledges1$names<-c("Western Africa, Central America, Bangladesh - high pledges","All geographies, high pledges","Africa and Asia, high pledges","Small African and Asian states, moderate pledges","North Africa and Middle East, moderate pledges","Eastern Europe and Caribbean, moderate pledges","Canada, Scandinavia, Australia/New Zealand modest pledges","Small European and Caribbean states, modest pledges","Western Europe, South Korea, Japan, very low pledges")
+box_pledges1$names<-c("Western Africa, Central America, Bangladesh, high pledges","All geographies, high pledges","Africa and Asia, high pledges","Small African and Asian states, moderate pledges","North Africa and Middle East, moderate pledges","Eastern Europe and Caribbean, moderate pledges","Canada, Scandinavia, Australia/New Zealand modest pledges","Small European and Caribbean states, modest pledges","Western Europe, South Korea, Japan, very low pledges")
 
 
 mi_palette<-c("#1BD9B5", "#F0F200" ,"#7570B3", "#F000DB", "#EE0000" ,"#E6AB02" ,"#2E1900" ,"#267300","#0000FF")# create color-blind friendly palette for following plots
@@ -408,7 +413,7 @@ box1<-ggboxplot(box_pledges1, x = "cluster", y = "pledges_perc", fill = "cluster
   theme(legend.position = "none")+
   scale_color_manual(values= mi_palette)+
   scale_fill_manual(values= mi_palette, name="Archetypes", labels=c("(1)Western Africa, Central America
-Bangladesh - high pledges","(2)All geographies, high pledges","(3)Africa and Asia, high pledges","(4)Small African and Asian states, 
+Bangladesh, high pledges","(2)All geographies, high pledges","(3)Africa and Asia, high pledges","(4)Small African and Asian states, 
 moderate pledges","(5)North Africa and Middle East,
 moderate pledges","(6)Eastern Europe and Caribbean,
 moderate pledges","(7)Canada, Scandinavia, 
@@ -434,7 +439,7 @@ box2<-ggboxplot(scatter_data, x = "cluster", y = "pledges_ha", fill = "cluster",
   theme(legend.position="none")+
   scale_color_manual(values= mi_palette)+
   scale_fill_manual(values= mi_palette, name="Archetypes", labels=c("(1)Western Africa, Central America
-Bangladesh - high pledges","(2)All geographies, high pledges","(3)Africa and Asia, high pledges","(4)Small African and Asian states, 
+Bangladesh, high pledges","(2)All geographies, high pledges","(3)Africa and Asia, high pledges","(4)Small African and Asian states, 
 moderate pledges","(5)North Africa and Middle East,
 moderate pledges","(6)Eastern Europe and Caribbean,
 moderate pledges","(7)Canada, Scandinavia, 
@@ -465,7 +470,7 @@ ehanpp_plot<-ggboxplot(scatter_data, x = "cluster", y = "embodied_land_total", f
   geom_abline(slope=0, intercept=0,  col = "black",lty=1) +
   scale_color_manual(values= mi_palette)+
   scale_fill_manual(values= mi_palette, name="Archetypes", labels=c("(1)Western Africa, Central America
-Bangladesh - high pledges","(2)All geographies, high pledges","(3)Africa and Asia, high pledges","(4)Small African and Asian states, 
+Bangladesh, high pledges","(2)All geographies, high pledges","(3)Africa and Asia, high pledges","(4)Small African and Asian states, 
 moderate pledges","(5)North Africa and Middle East,
 moderate pledges","(6)Eastern Europe and Caribbean,
 moderate pledges","(7)Canada, Scandinavia, 
@@ -473,16 +478,28 @@ Australia/New Zealand, modest pledges","(8)Small European and Caribbean states,
 modest pledges","(9)Western Europe, South Korea, 
 Japan, very low pledges"))
  
-
+windows()
 ehanpp_plot+ 
-  annotate("text", x=1:9, y= 135000, alpha=1, fill="white", color="black",lwd=4, label=c("28.7%", "9.55%","9.03%","6.05%", "4.65%", "3.8%", "1.61%", "1.26%", "0.37%"))+
+  annotate("text", x=1:9, y= 135000, alpha=1, fill="white", color="black",lwd=4, label=c("28.7%
+[25.6]", 
+                                                                                         "9.55%
+[11.2]",
+                                                                                         "9.03%
+[9.99]",
+                                                                                         "6.05%
+[14.9]", 
+                                                                                         "4.65%
+[9.61]", 
+                                                                                         "3.8%
+[5.76]", 
+                                                                                         "1.61%
+[2.77]", 
+                                                                                         "1.26%
+[3.40]", 
+                                                                                         "0.37%
+[1.64]"))+
   coord_cartesian(ylim=c(-150000, 150000))
 
 
 
 ##END##
-
-
-
-
-
