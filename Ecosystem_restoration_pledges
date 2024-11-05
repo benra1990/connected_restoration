@@ -2,7 +2,7 @@
 ##
 ##Script name: The enabling conditions for ecosystem restoration: global challenges in a teleconnected and unequal world
 ##
-##Purpose of script: Develop procedures and statistical analyzes of manuscript
+##Purpose of script: Develop procedures and statistical analyzes leading to the Figures presented in the paper
 ##
 ##Author: Dr. Felipe Benra
 ##Affiliation: Social-Ecological Systems Institute, School of Sustainability, Leuphana University Lüneburg
@@ -11,11 +11,9 @@
 ##
 ##--------------
 ##
-##Notes: Input data is made available as RData file and all sources are listed in a separate table
-##
-##Description of the input data required to replicate these analyses can be found as a separate table
-##
-##
+##Notes: Description of the input data required to replicate these analyses can be found in Supplementary Table 2
+##Input data is made available as RData file and all sources are listed in Supplementary Table 4
+
 
 #libraries
 
@@ -23,6 +21,11 @@ library(rgdal)
 library(raster)
 library(rgeos)
 library(readxl)
+library(foreign)
+library(kohonen)
+library(som)
+library(missSOM)
+library(clusterSim)
 library(reshape2)
 library(openxlsx)
 library(dplyr)
@@ -31,15 +34,14 @@ library(scales)
 library(ggplot2)
 library(gridExtra)
 library(NbClust)
+library(countrycode)
+library(tabulizer)
 library(ggpubr)
 library(rstatix)
 library(RColorBrewer)
 library(bestNormalize)
 library(ggthemes)
 library(ggsci)
-library(outliers)
-
-###0. LOAD DATA####
 
 db_pledges<-read.xlsx("Z:/Restoration_inequalities_archetypes/Data/Processed/db_pledges_all.xlsx")##change depending on where database is on your computers
 
@@ -128,31 +130,30 @@ db_pledges_s%>%dplyr::mutate(npp_pot_ha=predict(bestNormalize::orderNorm(npp_pot
                              `pa_area_iucn_0[km2]`=predict(bestNormalize::orderNorm(`pa_area_iucn_0[km2]`)),
                              `forest_share[%]`=predict(bestNormalize::orderNorm(`forest_share[%]`)),
                              `agri_share[%]`=predict(bestNormalize::orderNorm(`agri_share[%]`)),
-                   #socio-economic
-                   technology_index=predict (bestNormalize::log_x(technology_index)),   
-                   life_expectancy=predict (bestNormalize::orderNorm(life_expectancy)), 
-                   education=predict(bestNormalize::orderNorm(education)),
-                   income=predict(bestNormalize::sqrt_x(income)),
-                   donations_recipient=predict(bestNormalize::arcsinh_x(donations_recipient)),
-                   future_growth=predict(bestNormalize::yeojohnson(future_growth)),
-                   gdp_growth=predict(bestNormalize::yeojohnson(gdp_growth)),
-                   pop_density=predict(bestNormalize::orderNorm(pop_density)),
-                   #governance
-                   Voice=predict(bestNormalize::orderNorm(Voice)),
-                   pol_stability=predict(bestNormalize::orderNorm(pol_stability)),
-                   reg_quality=predict(bestNormalize::sqrt_x(reg_quality)),
-                   tenure_sec=predict(bestNormalize::orderNorm(tenure_sec)),
-                   ind_pop=predict(bestNormalize::orderNorm(ind_pop)),
-                   ind_land_tot=predict(bestNormalize::orderNorm(ind_land_tot)),
-                   
+                             #socio-economic
+                             technology_index=predict (bestNormalize::log_x(technology_index)),   
+                             life_expectancy=predict (bestNormalize::orderNorm(life_expectancy)), 
+                             education=predict(bestNormalize::orderNorm(education)),
+                             income=predict(bestNormalize::sqrt_x(income)),
+                             donations_recipient=predict(bestNormalize::arcsinh_x(donations_recipient)),
+                             future_growth=predict(bestNormalize::yeojohnson(future_growth)),
+                             gdp_growth=predict(bestNormalize::yeojohnson(gdp_growth)),
+                             pop_density=predict(bestNormalize::orderNorm(pop_density)),
+                             #governance
+                             Voice=predict(bestNormalize::orderNorm(Voice)),
+                             pol_stability=predict(bestNormalize::orderNorm(pol_stability)),
+                             reg_quality=predict(bestNormalize::sqrt_x(reg_quality)),
+                             tenure_sec=predict(bestNormalize::orderNorm(tenure_sec)),
+                             ind_pop=predict(bestNormalize::orderNorm(ind_pop)),
+                             ind_land_tot=predict(bestNormalize::orderNorm(ind_land_tot)),
+                             
 )->db_pledges_s1#new data base with normalized variables
-
 
 
 
 db_pledges_s1[2:22]<-scale(as.data.frame(db_pledges_s1[2:22], center=TRUE, scale=TRUE))#z-scale data and assign new name
 
-db_matrix<-dist(db_pledges_s1[2:22], method="manhattan")#Matriz of distances 
+db_matrix<-dist(db_pledges_s1[2:22], method="manhattan")#Matrix of distances 
 
 
 ##2.Hierarchical cluster
@@ -161,11 +162,11 @@ glob_cluster<-hclust(db_matrix, method="ward.D" )
 ##3 Determining optimal number of clusters
 
 res<-NbClust(db_pledges_s1[2:22], diss=NULL, distance = "manhattan", min.nc=3, max.nc=10, 
-             method = "ward.D", index = "kl") 
+             method = "ward.D", index = "db") 
 
 res$All.index
 
-res$Best.nc
+res$Best.nc#best number of clusters
 
 ##3.Drawing dendogram of hierarchical cluster
 plot(glob_cluster, xlab="", ylab="Height", labels=FALSE, hang=-1, lwd=2, main="")
@@ -185,10 +186,9 @@ clust_countries<-data.frame(clust_countries)
 duplicated(clust_countries$ISO3)#check if there are duplicated country codes
 
 #calculate mean of pledges in percentage per archetype to determine order in grid
-
 pledges_order<-clust_countries%>%
   group_by(cluster)%>%
-  summarise(promedio=mean(pledges),sd=sd(pledges))%>%
+  summarise(promedio=mean(pledges,na.ra=TRUE),sd=sd(pledges))%>%
   arrange(promedio)#sort increasing order
 pledges_order
 #add new column with new order from largest pledge to lowest pledge to guide all analyses later on
@@ -206,15 +206,10 @@ clust_countries<-clust_countries%>%##assign new order
                    cluster== 8~"9"
   ))
 
-##For getting new order of clusters
-pledges_order1<-clust_countries%>%
-  group_by(new_order)%>%
-  summarise(promedio=mean(pledges))%>%
-  arrange(promedio)#sort increasing order
-pledges_order1
-                   
-               
 
+
+#check countries within each archetype given the new order
+                   
 arch1<-clust_countries%>%filter(new_order==1)
 list(arch1$ISO3)
 arch2<-clust_countries%>%filter(new_order==2)
@@ -234,23 +229,24 @@ list(arch8$ISO3)
 arch9<-clust_countries%>%filter(new_order==9)
 list(arch9$ISO3)
 
-lista_ordenada<-rbind(arch1, arch2, arch3, arch4, arch5, arch6, arch7, arch8, arch9)
+lista_ordenada<-rbind(arch1, arch2, arch3, arch4, arch5, arch6, arch7, arch8, arch9)#ordered list with prior and definitive cluster arrangement with sorting according to pledges
 
-colnames(lista_ordenada)<-c("ISO-3 Code", "Archetype")
-
-#write.xlsx(lista_ordenada, "Z:/Restoration_inequalities_archetypes/Data/Processed/fromR/lista_paises_ordenada.xlsx", overwrite = TRUE)# export this list if wanted
+#write.xlsx(lista_ordenada, "Z:/Restoration_inequalities_archetypes/Data/Processed/fromR/lista_paises_ordenada.xlsx", overwrite = TRUE)
 
 
-##import shapefile from countries
+##import shapefile of countries
 
-countries<-readOGR(dsn = "Z:/Restoration_inequalities_archetypes/Spatial_data_and_scripts", layer="World_Countries__Generalized_")
+countries<-readOGR(dsn = "Z:/Restoration_inequalities_archetypes/Spatial_data_and_scripts", layer="World_Countries__Generalized_")#change depending on where this layer is on your computers
 
 countries@data$ISO3<-countrycode(countries@data$ISO, "iso2c", "iso3c")#transform iso2 column into iso3 for country name codes to merge with db_pledges_s
 
-####spatialize data####
+#spatialize data
+
 spdf<-sp::merge(countries,clust_countries, by="ISO3", sort=FALSE)
 
 data.table(colnames(spdf@data))##check if columns (variables were merged)
+
+#id_merge<-as.data.frame(rbind(spdf@data$ISO3,clust_countries$ISO3))#corroborate order
 
 writeOGR(spdf,dsn = "Z:/Restoration_inequalities_archetypes/Spatial data", layer="global_archetypes_all_with_donation", driver = "ESRI Shapefile", overwrite_layer = TRUE, verbose = TRUE)##aqui se encuentran los nombre correctos en minuscula de los municipio y todas las variables actuales
 
@@ -259,247 +255,950 @@ writeOGR(spdf,dsn = "Z:/Restoration_inequalities_archetypes/Spatial data", layer
 
 spplot(spdf,"new_order", scales=list(draw=TRUE), cuts=8)  
 
+#plot in ArcGis to get final paper figure
 
-####Characterization of the archetypes####
+
+#Characterization of the archetypes
+
+#Description of the clusters with barplot figure (Fig. 2)
+
+barplot_db <- merge(x=db_pledges_s1, y=clust_countries, by="ISO3")#add cluster to main database
+str(barplot_db)#check structure
+
+#write.xlsx(barplot_db, "Z:/Restoration_inequalities_archetypes/Data/Processed/fromR/arquetipos_escalados.xlsx", overwrite = TRUE)#exportar table. This table is needed for obtaining Supplementary Table 3.
 
 
-#Description of the clusters with barplot figure
-
-barplot_db <- as.data.frame(cbind(db_pledges_s1, cluster=clust_countries$new_oder))#add cluster to main database
-str(barplot_db)
+#caculate se and sd for error bars of Fig. 2
 
 barplot_db<-barplot_db%>%
-  group_by(cluster)%>%
-  dplyr::summarise_at(vars(npp_pot_ha :ind_land_tot ), mean, na.rm=TRUE)
+  group_by(new_order)%>%
+  dplyr::summarise_at(vars(npp_pot_ha :ind_land_tot ), list(~mean(., na.rm = TRUE), sd=~sd(., na.rm = TRUE), se=~sd(., na.rm = TRUE)/sqrt(n())))
+
+
 ncol(barplot_db)
-barplot_db1<-as.data.frame(barplot_db)
+glimpse(barplot_db)
+
+barplot_db <- barplot_db %>%
+  mutate(across(npp_pot_ha_mean :ind_land_tot_mean, .names = "{.col}_subtracted",   # Create new column names based on the original ones
+                ~ . - get(sub("mean", "se", cur_column()))))# Subtract corresponding 'se' column
+
+
+barplot_db <- barplot_db %>%
+  mutate(across(npp_pot_ha_mean :ind_land_tot_mean, .names = "{.col}_added",   # Create new column names based on the original ones
+                ~ . + get(sub("mean", "se", cur_column())))) 
+
+glimpse(barplot_db)
+
+#just leave the 21 variables for plotting
+barplot_db1<-as.data.frame(barplot_db)[,-c(23:106)]
 str(barplot_db1)#check structure
-
-
-barplot_db1<-barplot_db1[,-1]##delete cluster nr column for the moment
+barplot_db1<-barplot_db1[,-1]##delete cluster nr 
 barplot_db1<-as.data.frame(t(barplot_db1))
 colnames(barplot_db1)[1:9]<-c("archetype1","archetype2", "archetype3", "archetype4", "archetype5", "archetype6", "archetype7", "archetype8", "archetype9")
 
+##remove unnecessary variables for plotting error bars 
 
-##change names for final map
+barplot_db2<-barplot_db[,-c(1:64)]#create a new object leaving only columns with standard deviation for error bars
+data.table(colnames(barplot_db2))
+barplot_db2<-as.data.frame(t(barplot_db2))
+colnames(barplot_db2)[1:9]<-c("archetype1","archetype2", "archetype3", "archetype4", "archetype5", "archetype6", "archetype7", "archetype8", "archetype9")
+barplot_db2$rest_var<-rownames(barplot_db2)
+
+data.table(colnames(barplot_db2))
+
+
+#absolute values for annotation
+
+glimpse(barplot_db1)
+barplot_db1<-as.data.frame(apply(barplot_db1,2, as.numeric))#turn all numeric
+barplot_annotation<-barplot_db1[1:21,]
+rownames(barplot_annotation)<-c("NPP","HANPP","Non-productive areas", "Protected areas IUCN (IV-VI)","Protected areas IUCN (I-III)","Forest share", "Agriculture share", "Technology", "Life expectancy", "Education", "Income", "Donations (recipient)","Population Growth", "GDP Growth","Population density","Voice", "Political stability", "Regulatory quality", "Tenure security", "Indigenous population", "Indigenous land" )
+barplot_annotation<-data.frame(t(barplot_annotation))
+barplot_annotation<-abs(barplot_annotation)
+
+annotation<-barplot_annotation%>%rowwise%>%
+  mutate(biophysical=sum(c(NPP, HANPP, Non.productive.areas, Protected.areas.IUCN..I.III., Protected.areas.IUCN..IV.VI., Forest.share, Agriculture.share), na.rm=TRUE))
+
+annotation<-annotation%>%rowwise%>%
+  mutate(socioeconomic=sum(c(Technology,Life.expectancy,Education, Income, Donations..recipient., Population.Growth, Population.density, GDP.Growth), na.rm=TRUE))
+
+annotation<-annotation%>%rowwise%>%
+  mutate(governance=sum(c(Voice, Political.stability, Regulatory.quality, Tenure.security, Indigenous.population, Indigenous.land), na.rm=TRUE))
+
+annotation_final<-annotation%>% 
+  mutate(total = sum(c_across(biophysical:governance))) %>% 
+  ungroup() %>% 
+  mutate(across(biophysical:governance, ~ . *100/total))
+annotation_final<-as.data.frame(annotation_final)
+
+# final table to get percentages for annotation of Fig. 2 
+annotation_final<-t(annotation_final)
+colnames(annotation_final)[1:9]<-c("archetype1","archetype2", "archetype3", "archetype4", "archetype5", "archetype6", "archetype7", "archetype8", "archetype9")
+
+##change names for final figure
 barplot_db1$rest_var<-c("NPP","HANPP","Non-productive areas", "Protected areas IUCN (IV-VI)","Protected areas IUCN (I-III)","Forest share", "Agriculture share", "Technology", "Life expectancy", "Education", "Income", "Donations (recipient)","Population Growth", "GDP Growth","Population density","Voice", "Political stability", "Regulatory quality", "Tenure security", "Indigenous population", "Indigenous land" )
 
-##Here the Barplot for the Archetypes with ggplot(Fig. 2)
 
-Arc_barplot_function<-function(barplot_db1,rest_var,var, mytitle){
-barplot_db1|>
-ggplot(aes(x=factor({{rest_var}}, levels={{rest_var}}), y={{var}}, color={{rest_var}}))+ geom_bar(stat="identity",position="dodge", fill="white", lwd=1.2) +
+
+
+##here the Barplot for the Archetypes with ggplot
+
+Arc_barplot_function<-function(barplot_db1,rest_var,var, mytitle, error_bounds=NULL){
+  barplot_db1|>
+ggplot(aes(x=factor({{rest_var}}, levels={{rest_var}}), y={{var}}, color={{rest_var}}))+ geom_bar(stat="identity",position="dodge",fill=c("#006CD1","#006CD1","#006CD1","#006CD1","#006CD1","#006CD1","#006CD1","purple","purple","purple","purple","purple","purple","purple","purple","#994F00","#994F00", "#994F00","#994F00", "#994F00","#994F00"),lwd=0.5) +
   coord_flip()+
-  scale_y_continuous(breaks=seq(-2,2,0.5), labels=seq(-2,2,0.5))+
+  scale_y_continuous(breaks=seq(-2.2,2,0.5), labels=seq(-2.2,2,0.5), limit=c(-2.2,2,0.5))+
   scale_x_discrete(limits=rev)+
-  scale_color_manual(breaks=c("NPP","HANPP","Non-productive areas", "Protected areas IUCN (IV-VI)","Protected areas IUCN (I-III)","Forest share", "Agriculture share", "Technology", "Life expectancy", "Education", "Income", "Donations (recipient)","Population Growth", "GDP Growth","Population density","Voice", "Political stability", "Regulatory quality", "Tenure security", "Indigenous population", "Indigenous land"), values=c("#006CD1","#006CD1","#006CD1","#006CD1","#006CD1","#006CD1","#006CD1","purple","purple","purple","purple","purple","purple","purple","purple","#994F00","#994F00", "#994F00","#994F00", "#994F00","#994F00"))+#,"Donations (donor)"
+#,"Donations (donor)"
   ggtitle(mytitle) +
   theme_minimal()+
+    theme(legend.position="none",axis.text.y = element_text(size=16), axis.text.x = element_text(size=14), plot.title = element_text(size=18), axis.title = element_text(size = 16)) +
+    scale_color_manual(breaks=c("NPP","HANPP","Non-productive areas", "Protected areas IUCN (IV-VI)","Protected areas IUCN (I-III)","Forest share", "Agriculture share", "Technology", "Life expectancy", "Education", "Income", "Donations (recipient)","Population Growth", "GDP Growth","Population density","Voice", "Political stability", "Regulatory quality", "Tenure security", "Indigenous population", "Indigenous land"), values=c("grey","grey","grey","grey","grey","grey","grey","grey","grey","grey","grey","grey","grey","grey","grey","grey","grey", "grey","grey", "grey","grey"))+
   theme(legend.position="none") +
-  labs(x="", y ="z-score")
-   
+  labs(x="",y ="z-score")
 }
 
 
-Arc1<-Arc_barplot_function(barplot_db1,rest_var,archetype1,"(1) Western Africa, Central America, Bangladesh, 
-      high pledges [mean=28.7%,sd=25.6]")+
- geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid")
+  # Filter row names for _mean_subtracted and _mean_added patterns
+  ymin_row_names <- rownames(barplot_db2)[grepl("_mean_subtracted$", rownames(barplot_db2), ignore.case = TRUE)]
+  ymax_row_names <- rownames(barplot_db2)[grepl("_mean_added$", rownames(barplot_db2), ignore.case = TRUE)]
+  
+  # Initialize vectors to hold values
+  ymin_values <- numeric(length(ymin_row_names))
+  ymax_values <- numeric(length(ymax_row_names))
+  base_ymin_names <- character(length(ymin_row_names))
+  base_ymax_names <- character(length(ymax_row_names))
+  
+  # Loop through all ymin matches to extract base names and min values
+  for (i in seq_along(ymin_row_names)) {
+    # Get the base name from the row name
+    base_name <- sub("_mean_subtracted$", "", ymin_row_names[i])
+    
+    # Directly retrieve the ymin value from the row with _mean_subtracted suffix
+    ymin_values[i] <- barplot_db2[ymin_row_names[i], "archetype1"]
+    base_ymin_names[i] <- base_name
+  }
+  
+  # Loop through all ymax matches to extract base names and max values
+  for (f in seq_along(ymax_row_names)) {
+    # Get the base name from the row name
+    base_name <- sub("_mean_added$", "", ymax_row_names[f])
+    
+    # Directly retrieve the ymax value from the row with _mean_added suffix
+    ymax_values[f] <- barplot_db2[ymax_row_names[f], "archetype1"]
+    base_ymax_names[f] <- base_name
+  }
+  
+  # Return the results as a data frame
+  error_bounds <- data.frame(
+    base_ymin_name = base_ymin_names, 
+    ymin = ymin_values, 
+    base_ymax_name = base_ymax_names, 
+    ymax = ymax_values, 
+    stringsAsFactors = FALSE
+  )
+  
+  # Remove the third column (which is the same as column 1)
+  error_bounds <- error_bounds[-3]
+  colnames(error_bounds)[1] <- "rest_var"
+  
+  # Copy 'rest_var' and 'archetype1' from barplot_db1
+  error_bounds$rest_var <- barplot_db1$rest_var
+  error_bounds$archetype1 <- barplot_db1$archetype1
+  
+  # Ensure 'rest_var' is a factor
+  error_bounds$rest_var <- factor(error_bounds$rest_var, 
+                                  levels = unique(error_bounds$rest_var))
+  
+  # Inspect structure of the result
+  str(error_bounds)
+  
+  
+##add here archetype value column to error_bounds object
 
- 
+# Use consistent rownames for plotting
+
+# Example usage with error_bounds
+Arc1<-Arc_barplot_function(error_bounds,rest_var,archetype1, "(1) Western Africa, Central America, 
+      Bangladesh, high pledges 
+      [mean=28.7%,sd=25.6]")+
+  geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid")+
+  geom_errorbar(data = error_bounds,
+                aes(x = rest_var, ymin = ymin, ymax = ymax), 
+                width = 0.5, 
+                color="black",
+                position = position_dodge(0.9))
+
+
+# Display the plot
+
 Arc1
 
-Arc2<-Arc_barplot_function(barplot_db1,rest_var,archetype2, "(2) All geographies, 
-      high pledges [mean=9.55%, sd=11.2]")+
-   geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid")
+
+
+# get ymin and ymax values for a specific archetype2 from barplot_db2
+
+# Initialize vectors to hold values
+ymin_values <- numeric(length(ymin_row_names))
+ymax_values <- numeric(length(ymax_row_names))
+base_ymin_names <- character(length(ymin_row_names))
+base_ymax_names <- character(length(ymax_row_names))
+
+# Loop through all ymin matches to extract base names and min values
+for (i in seq_along(ymin_row_names)) {
+  # Get the base name from the row name
+  base_name <- sub("_mean_subtracted$", "", ymin_row_names[i])
+  
+  # Directly retrieve the ymin value from the row with _mean_subtracted suffix
+  ymin_values[i] <- barplot_db2[ymin_row_names[i], "archetype2"]
+  base_ymin_names[i] <- base_name
+}
+
+# Loop through all ymax matches to extract base names and max values
+for (f in seq_along(ymax_row_names)) {
+  # Get the base name from the row name
+  base_name <- sub("_mean_added$", "", ymax_row_names[f])
+  
+  # Directly retrieve the ymax value from the row with _mean_added suffix
+  ymax_values[f] <- barplot_db2[ymax_row_names[f], "archetype2"]
+  base_ymax_names[f] <- base_name
+}
+
+# Return the results as a data frame
+error_bounds <- data.frame(
+  base_ymin_name = base_ymin_names, 
+  ymin = ymin_values, 
+  base_ymax_name = base_ymax_names, 
+  ymax = ymax_values, 
+  stringsAsFactors = FALSE
+)
+
+# Remove the third column (which is the same as column 1)
+error_bounds <- error_bounds[-3]
+colnames(error_bounds)[1] <- "rest_var"
+
+# Copy 'rest_var' and 'archetype1' from barplot_db1
+error_bounds$rest_var <- barplot_db1$rest_var
+error_bounds$archetype2 <- barplot_db1$archetype2
+
+# Ensure 'rest_var' is a factor
+error_bounds$rest_var <- factor(error_bounds$rest_var, 
+                                levels = unique(error_bounds$rest_var))
+
+# Inspect structure of the result
+str(error_bounds)
+
+
+
+Arc2<-Arc_barplot_function(error_bounds,rest_var,archetype2, "(2) All geographies, high pledges
+      [mean=9.55%, sd=11.2]")+
+  theme(axis.text.y = element_blank())+
+   geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid")+
+  geom_errorbar(data = error_bounds,
+                aes(x = rest_var, ymin = ymin, ymax = ymax), 
+                width = 0.5, 
+                color="black",
+                position = position_dodge(0.9))
 
  
 Arc2
 
-Arc3<-Arc_barplot_function(barplot_db1,rest_var,archetype3, "(3) Africa and Asia, 
-      high pledges [mean=9.03%, sd=9.99]")+
-  geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid") 
+
+# get ymin and ymax values for a specific archetype3 from barplot_db2
+
+
+# Initialize vectors to hold values
+ymin_values <- numeric(length(ymin_row_names))
+ymax_values <- numeric(length(ymax_row_names))
+base_ymin_names <- character(length(ymin_row_names))
+base_ymax_names <- character(length(ymax_row_names))
+
+# Loop through all ymin matches to extract base names and min values
+for (i in seq_along(ymin_row_names)) {
+  # Get the base name from the row name
+  base_name <- sub("_mean_subtracted$", "", ymin_row_names[i])
+  
+  # Directly retrieve the ymin value from the row with _mean_subtracted suffix
+  ymin_values[i] <- barplot_db2[ymin_row_names[i], "archetype3"]
+  base_ymin_names[i] <- base_name
+}
+
+# Loop through all ymax matches to extract base names and max values
+for (f in seq_along(ymax_row_names)) {
+  # Get the base name from the row name
+  base_name <- sub("_mean_added$", "", ymax_row_names[f])
+  
+  # Directly retrieve the ymax value from the row with _mean_added suffix
+  ymax_values[f] <- barplot_db2[ymax_row_names[f], "archetype3"]
+  base_ymax_names[f] <- base_name
+}
+
+# Return the results as a data frame
+error_bounds <- data.frame(
+  base_ymin_name = base_ymin_names, 
+  ymin = ymin_values, 
+  base_ymax_name = base_ymax_names, 
+  ymax = ymax_values, 
+  stringsAsFactors = FALSE
+)
+
+# Remove the third column (which is the same as column 1)
+error_bounds <- error_bounds[-3]
+colnames(error_bounds)[1] <- "rest_var"
+
+# Copy 'rest_var' and 'archetype1' from barplot_db1
+error_bounds$rest_var <- barplot_db1$rest_var
+error_bounds$archetype3 <- barplot_db1$archetype3
+
+# Ensure 'rest_var' is a factor
+error_bounds$rest_var <- factor(error_bounds$rest_var, 
+                                levels = unique(error_bounds$rest_var))
+
+# Inspect structure of the result
+str(error_bounds)
+
+
+
+
+Arc3<-Arc_barplot_function(barplot_db1,rest_var,archetype3, "(3) Africa and Asia, high pledges
+      [mean=9.03%, sd=9.99]")+
+  theme(axis.text.y = element_blank())+
+  geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid") +
+  geom_errorbar(data = error_bounds,
+                aes(x = rest_var, ymin = ymin, ymax = ymax), 
+                width = 0.5, 
+                color="black",
+                position = position_dodge(0.9))
 
 Arc3
 
-Arc4<-Arc_barplot_function(barplot_db1,rest_var,archetype4, "(4) Small African and Asian states,
-      moderate pledges [mean=6.05%, sd=14.9]")+
-  geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid")
 
+# get ymin and ymax values for a specific archetype4 from barplot_db2
+
+
+# Initialize vectors to hold values
+ymin_values <- numeric(length(ymin_row_names))
+ymax_values <- numeric(length(ymax_row_names))
+base_ymin_names <- character(length(ymin_row_names))
+base_ymax_names <- character(length(ymax_row_names))
+
+# Loop through all ymin matches to extract base names and min values
+for (i in seq_along(ymin_row_names)) {
+  # Get the base name from the row name
+  base_name <- sub("_mean_subtracted$", "", ymin_row_names[i])
+  
+  # Directly retrieve the ymin value from the row with _mean_subtracted suffix
+  ymin_values[i] <- barplot_db2[ymin_row_names[i], "archetype4"]
+  base_ymin_names[i] <- base_name
+}
+
+# Loop through all ymax matches to extract base names and max values
+for (f in seq_along(ymax_row_names)) {
+  # Get the base name from the row name
+  base_name <- sub("_mean_added$", "", ymax_row_names[f])
+  
+  # Directly retrieve the ymax value from the row with _mean_added suffix
+  ymax_values[f] <- barplot_db2[ymax_row_names[f], "archetype4"]
+  base_ymax_names[f] <- base_name
+}
+
+# Return the results as a data frame
+error_bounds <- data.frame(
+  base_ymin_name = base_ymin_names, 
+  ymin = ymin_values, 
+  base_ymax_name = base_ymax_names, 
+  ymax = ymax_values, 
+  stringsAsFactors = FALSE
+)
+
+# Remove the third column (which is the same as column 1)
+error_bounds <- error_bounds[-3]
+colnames(error_bounds)[1] <- "rest_var"
+
+# Copy 'rest_var' and 'archetype1' from barplot_db1
+error_bounds$rest_var <- barplot_db1$rest_var
+error_bounds$archetype4 <- barplot_db1$archetype4
+
+# Ensure 'rest_var' is a factor
+error_bounds$rest_var <- factor(error_bounds$rest_var, 
+                                levels = unique(error_bounds$rest_var))
+
+# Inspect structure of the result
+str(error_bounds)
+
+
+
+
+Arc4<-Arc_barplot_function(barplot_db1,rest_var,archetype4, "(4) Small African and Asian states,
+      moderate pledges
+      [mean=6.05%, sd=14.9]")+
+  geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid")+
+  geom_errorbar(data = error_bounds,
+                aes(x = rest_var, ymin = ymin, ymax = ymax), 
+                width = 0.5, 
+                color="black",
+                position = position_dodge(0.9))
+  
 Arc4
 
+
+# get ymin and ymax values for a specific archetype5 from barplot_db2
+
+
+# Initialize vectors to hold values
+ymin_values <- numeric(length(ymin_row_names))
+ymax_values <- numeric(length(ymax_row_names))
+base_ymin_names <- character(length(ymin_row_names))
+base_ymax_names <- character(length(ymax_row_names))
+
+# Loop through all ymin matches to extract base names and min values
+for (i in seq_along(ymin_row_names)) {
+  # Get the base name from the row name
+  base_name <- sub("_mean_subtracted$", "", ymin_row_names[i])
+  
+  # Directly retrieve the ymin value from the row with _mean_subtracted suffix
+  ymin_values[i] <- barplot_db2[ymin_row_names[i], "archetype5"]
+  base_ymin_names[i] <- base_name
+}
+
+# Loop through all ymax matches to extract base names and max values
+for (f in seq_along(ymax_row_names)) {
+  # Get the base name from the row name
+  base_name <- sub("_mean_added$", "", ymax_row_names[f])
+  
+  # Directly retrieve the ymax value from the row with _mean_added suffix
+  ymax_values[f] <- barplot_db2[ymax_row_names[f], "archetype5"]
+  base_ymax_names[f] <- base_name
+}
+
+# Return the results as a data frame
+error_bounds <- data.frame(
+  base_ymin_name = base_ymin_names, 
+  ymin = ymin_values, 
+  base_ymax_name = base_ymax_names, 
+  ymax = ymax_values, 
+  stringsAsFactors = FALSE
+)
+
+# Remove the third column (which is the same as column 1)
+error_bounds <- error_bounds[-3]
+colnames(error_bounds)[1] <- "rest_var"
+
+# Copy 'rest_var' and 'archetype1' from barplot_db1
+error_bounds$rest_var <- barplot_db1$rest_var
+error_bounds$archetype5 <- barplot_db1$archetype5
+
+# Ensure 'rest_var' is a factor
+error_bounds$rest_var <- factor(error_bounds$rest_var, 
+                                levels = unique(error_bounds$rest_var))
+
+# Inspect structure of the result
+str(error_bounds)
+
+
 Arc5<-Arc_barplot_function(barplot_db1,rest_var,archetype5, "(5) North Africa and Middle East,
-      moderate pledges [4.65%, sd=9.61]")+
-  geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid")
+      moderate pledges
+      [mean=4.65%, sd=9.61]")+
+  theme(axis.text.y = element_blank())+
+  geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid")+
+  geom_errorbar(data = error_bounds,
+                aes(x = rest_var, ymin = ymin, ymax = ymax), 
+                width = 0.5, 
+                color="black",
+                position = position_dodge(0.9))
   
 Arc5
 
-Arc6<-Arc_barplot_function(barplot_db1,rest_var,archetype6, "(6) Eastern Europe and Caribbean, 
-      moderate pledges [3.8%, sd=5.76]")+
-  geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid")
 
+# get ymin and ymax values for a specific archetype6 from barplot_db2
+
+
+# Initialize vectors to hold values
+ymin_values <- numeric(length(ymin_row_names))
+ymax_values <- numeric(length(ymax_row_names))
+base_ymin_names <- character(length(ymin_row_names))
+base_ymax_names <- character(length(ymax_row_names))
+
+# Loop through all ymin matches to extract base names and min values
+for (i in seq_along(ymin_row_names)) {
+  # Get the base name from the row name
+  base_name <- sub("_mean_subtracted$", "", ymin_row_names[i])
   
+  # Directly retrieve the ymin value from the row with _mean_subtracted suffix
+  ymin_values[i] <- barplot_db2[ymin_row_names[i], "archetype6"]
+  base_ymin_names[i] <- base_name
+}
+
+# Loop through all ymax matches to extract base names and max values
+for (f in seq_along(ymax_row_names)) {
+  # Get the base name from the row name
+  base_name <- sub("_mean_added$", "", ymax_row_names[f])
+  
+  # Directly retrieve the ymax value from the row with _mean_added suffix
+  ymax_values[f] <- barplot_db2[ymax_row_names[f], "archetype6"]
+  base_ymax_names[f] <- base_name
+}
+
+# Return the results as a data frame
+error_bounds <- data.frame(
+  base_ymin_name = base_ymin_names, 
+  ymin = ymin_values, 
+  base_ymax_name = base_ymax_names, 
+  ymax = ymax_values, 
+  stringsAsFactors = FALSE
+)
+
+# Remove the third column (which is the same as column 1)
+error_bounds <- error_bounds[-3]
+colnames(error_bounds)[1] <- "rest_var"
+
+# Copy 'rest_var' and 'archetype1' from barplot_db1
+error_bounds$rest_var <- barplot_db1$rest_var
+error_bounds$archetype6 <- barplot_db1$archetype6
+
+# Ensure 'rest_var' is a factor
+error_bounds$rest_var <- factor(error_bounds$rest_var, 
+                                levels = unique(error_bounds$rest_var))
+
+# Inspect structure of the result
+str(error_bounds)
+
+
+Arc6<-Arc_barplot_function(barplot_db1,rest_var,archetype6, "(6) Eastern Europe and Caribbean, 
+      moderate pledges
+      [mean=3.8%, sd=5.76]")+
+  theme(axis.text.y = element_blank())+
+  geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid")+
+  geom_errorbar(data = error_bounds,
+                aes(x = rest_var, ymin = ymin, ymax = ymax), 
+                width = 0.5, 
+                color="black",
+                position = position_dodge(0.9))
 Arc6
 
 
-Arc7<-Arc_barplot_function(barplot_db1,rest_var,archetype7, "(7) Canada, Scandinavia, Australia/New Zealand
-      modest pledges [1.61%, sd=2.77]")+
-  geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid") 
 
- 
+# get ymin and ymax values for a specific archetype7 from barplot_db2
+
+
+# Initialize vectors to hold values
+ymin_values <- numeric(length(ymin_row_names))
+ymax_values <- numeric(length(ymax_row_names))
+base_ymin_names <- character(length(ymin_row_names))
+base_ymax_names <- character(length(ymax_row_names))
+
+# Loop through all ymin matches to extract base names and min values
+for (i in seq_along(ymin_row_names)) {
+  # Get the base name from the row name
+  base_name <- sub("_mean_subtracted$", "", ymin_row_names[i])
+  
+  # Directly retrieve the ymin value from the row with _mean_subtracted suffix
+  ymin_values[i] <- barplot_db2[ymin_row_names[i], "archetype7"]
+  base_ymin_names[i] <- base_name
+}
+
+# Loop through all ymax matches to extract base names and max values
+for (f in seq_along(ymax_row_names)) {
+  # Get the base name from the row name
+  base_name <- sub("_mean_added$", "", ymax_row_names[f])
+  
+  # Directly retrieve the ymax value from the row with _mean_added suffix
+  ymax_values[f] <- barplot_db2[ymax_row_names[f], "archetype7"]
+  base_ymax_names[f] <- base_name
+}
+
+# Return the results as a data frame
+error_bounds <- data.frame(
+  base_ymin_name = base_ymin_names, 
+  ymin = ymin_values, 
+  base_ymax_name = base_ymax_names, 
+  ymax = ymax_values, 
+  stringsAsFactors = FALSE
+)
+
+# Remove the third column (which is the same as column 1)
+error_bounds <- error_bounds[-3]
+colnames(error_bounds)[1] <- "rest_var"
+
+# Copy 'rest_var' and 'archetype1' from barplot_db1
+error_bounds$rest_var <- barplot_db1$rest_var
+error_bounds$archetype7 <- barplot_db1$archetype7
+
+# Ensure 'rest_var' is a factor
+error_bounds$rest_var <- factor(error_bounds$rest_var, 
+                                levels = unique(error_bounds$rest_var))
+
+# Inspect structure of the result
+str(error_bounds)
+
+
+
+
+Arc7<-Arc_barplot_function(barplot_db1,rest_var,archetype7, "(7) Canada, Scandinavia, Australia/New Zealand,
+      modest pledges
+      [mean=1.61%, sd=2.77]")+
+  geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid")+
+  geom_errorbar(data = error_bounds,
+                aes(x = rest_var, ymin = ymin, ymax = ymax), 
+                width = 0.5, 
+                color="black",
+                position = position_dodge(0.9))
 Arc7
 
+
+# get ymin and ymax values for a specific archetype8 from barplot_db2
+
+
+# Initialize vectors to hold values
+ymin_values <- numeric(length(ymin_row_names))
+ymax_values <- numeric(length(ymax_row_names))
+base_ymin_names <- character(length(ymin_row_names))
+base_ymax_names <- character(length(ymax_row_names))
+
+# Loop through all ymin matches to extract base names and min values
+for (i in seq_along(ymin_row_names)) {
+  # Get the base name from the row name
+  base_name <- sub("_mean_subtracted$", "", ymin_row_names[i])
+  
+  # Directly retrieve the ymin value from the row with _mean_subtracted suffix
+  ymin_values[i] <- barplot_db2[ymin_row_names[i], "archetype8"]
+  base_ymin_names[i] <- base_name
+}
+
+# Loop through all ymax matches to extract base names and max values
+for (f in seq_along(ymax_row_names)) {
+  # Get the base name from the row name
+  base_name <- sub("_mean_added$", "", ymax_row_names[f])
+  
+  # Directly retrieve the ymax value from the row with _mean_added suffix
+  ymax_values[f] <- barplot_db2[ymax_row_names[f], "archetype8"]
+  base_ymax_names[f] <- base_name
+}
+
+# Return the results as a data frame
+error_bounds <- data.frame(
+  base_ymin_name = base_ymin_names, 
+  ymin = ymin_values, 
+  base_ymax_name = base_ymax_names, 
+  ymax = ymax_values, 
+  stringsAsFactors = FALSE
+)
+
+# Remove the third column (which is the same as column 1)
+error_bounds <- error_bounds[-3]
+colnames(error_bounds)[1] <- "rest_var"
+
+# Copy 'rest_var' and 'archetype1' from barplot_db1
+error_bounds$rest_var <- barplot_db1$rest_var
+error_bounds$archetype8 <- barplot_db1$archetype8
+
+# Ensure 'rest_var' is a factor
+error_bounds$rest_var <- factor(error_bounds$rest_var, 
+                                levels = unique(error_bounds$rest_var))
+
+# Inspect structure of the result
+str(error_bounds)
+
+
+
+
 Arc8<-Arc_barplot_function(barplot_db1,rest_var,archetype8, "(8) Small European and Caribbean states, 
-      modest pledges [1.26%, sd=3.40]")+
-  geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid")
+      modest pledges
+      [mean=1.26%, sd=3.40]")+
+  theme(axis.text.y = element_blank())+
+  geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid")+
+  geom_errorbar(data = error_bounds,
+                aes(x = rest_var, ymin = ymin, ymax = ymax), 
+                width = 0.5, 
+                color="black",
+                position = position_dodge(0.9))
   
 Arc8
 
+# get ymin and ymax values for a specific archetype9 from barplot_db2
+
+
+# Initialize vectors to hold values
+ymin_values <- numeric(length(ymin_row_names))
+ymax_values <- numeric(length(ymax_row_names))
+base_ymin_names <- character(length(ymin_row_names))
+base_ymax_names <- character(length(ymax_row_names))
+
+# Loop through all ymin matches to extract base names and min values
+for (i in seq_along(ymin_row_names)) {
+  # Get the base name from the row name
+  base_name <- sub("_mean_subtracted$", "", ymin_row_names[i])
+  
+  # Directly retrieve the ymin value from the row with _mean_subtracted suffix
+  ymin_values[i] <- barplot_db2[ymin_row_names[i], "archetype9"]
+  base_ymin_names[i] <- base_name
+}
+
+# Loop through all ymax matches to extract base names and max values
+for (f in seq_along(ymax_row_names)) {
+  # Get the base name from the row name
+  base_name <- sub("_mean_added$", "", ymax_row_names[f])
+  
+  # Directly retrieve the ymax value from the row with _mean_added suffix
+  ymax_values[f] <- barplot_db2[ymax_row_names[f], "archetype9"]
+  base_ymax_names[f] <- base_name
+}
+
+# Return the results as a data frame
+error_bounds <- data.frame(
+  base_ymin_name = base_ymin_names, 
+  ymin = ymin_values, 
+  base_ymax_name = base_ymax_names, 
+  ymax = ymax_values, 
+  stringsAsFactors = FALSE
+)
+
+# Remove the third column (which is the same as column 1)
+error_bounds <- error_bounds[-3]
+colnames(error_bounds)[1] <- "rest_var"
+
+# Copy 'rest_var' and 'archetype1' from barplot_db1
+error_bounds$rest_var <- barplot_db1$rest_var
+error_bounds$archetype9 <- barplot_db1$archetype9
+
+# Ensure 'rest_var' is a factor
+error_bounds$rest_var <- factor(error_bounds$rest_var, 
+                                levels = unique(error_bounds$rest_var))
+
+# Inspect structure of the result
+str(error_bounds)
+
 
 Arc9<-Arc_barplot_function(barplot_db1,rest_var,archetype9, "(9) Western Europe, South Korea, Japan, 
-      very low pledges [0.37%, sd=1.64]")+
-  geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid")
-
+      very low pledges
+      [mean=0.37%, sd=1.64]")+
+  theme(axis.text.y = element_blank())+
+  geom_hline(yintercept =c(-0.5,0.5),color = "blue", linetype = "solid")+
+  geom_errorbar(data = error_bounds,
+                aes(x = rest_var, ymin = ymin, ymax = ymax), 
+                width = 0.5, 
+                color="black",
+                position = position_dodge(0.9))
 Arc9
+
+
+#windows()
+grid.arrange(Arc1,Arc2,Arc3,Arc4, Arc5,Arc6, Arc7, Arc8, Arc9, nrow=3, ncol=3, top="") 
+#dev.off()
+
+
+
+#boxplots contrasting embodied hanpp with each archetype( Fig 1b and c)
 
 
 #we first merge raw database with cluster number, this will be used for following graphs
 
-box_pledges<-cbind(db_pledges1, cluster=clust_countries$new_oder)#merge raw database with cluster number (because eHANPP need to be raw)
+box_pledges1<-merge(db_pledges1, clust_countries, by="ISO3")#merge raw database with cluster number (because eHANPP needs to be raw)
 
-str(box_pledges)
-
-#combine all barplots
-grid.arrange(Arc1,Arc2,Arc3,Arc4, Arc5,Arc6, Arc7, Arc8, Arc9, nrow=3, ncol=3, top="") 
-
-
-
-####boxplots contrasting embodied hanpp with each archetype####
-
-#for boxplots of pledges we need scaled data so we get our data ready
-
-box_pledges1<-box_pledges[,c(4:5)]#selecting pledges ha and percentage
-box_pledges1<-cbind(box_pledges1, cluster=clust_countries$new_oder)#merge scaled database with cluster number
 str(box_pledges1)
-colnames(box_pledges1)[1]<-"pledges_ha"
-box_pledges1[c(1:2)]<-sapply(box_pledges1[c(1:2)], rescale, to =c(1,100), na.rm=TRUE)#we scale again here because in the previous scaling we had not incorporated the pledges variables and I want to use them for the boxplots to have a common y-axis
 
 
-box_pledges%>%dplyr::filter(is.na(pledges_perc))#use !is.na to remove the na rows
+#for boxplots of pledges in percentage we need scaled data so we get our data ready
+
+box_pledges1<-box_pledges1[,c(1,4:5,35 )]#selecting pledges ha and percentage, and cluster nr
+str(box_pledges1)
+box_pledges1[c(3)]<-sapply(box_pledges1[c(3)], rescale, to =c(1,100), na.rm=TRUE)#we scale again here because in the previous scaling we had not incorporated the pledges variables and I want to use them for the boxplots to have a common y-axis
+colnames(box_pledges1)[2:3]<-c("pledges_ha", "pledges_perc")
+
+#For pledges hectares data we need to get the 0 (countries with no commitments) to 1 in order to be ploted
+
+box_pledges1<-box_pledges1%>%
+  mutate(pledges_ha=case_when(pledges_ha==0~1, TRUE~pledges_ha))
+
+box_pledges1<-as.data.frame(box_pledges1)
 
 
-#prepare data for boxplots of total embodied land VS archetypes
+#add world region for respective country
 
-scatter_data<-box_pledges %>%
-  group_by(cluster) %>%
-  filter(!embodied_land_total %in% c(outlier(embodied_land_total)))
-colnames(scatter_data)[4]<-"pledges_ha"
+box_pledges1$region<-countrycode(box_pledges1$ISO3, "iso3c", "region")
+
+#add Global north/south column
+
+#Unequal exchange/Official development assistance/Donor countries Hickel et al 2022
+
+oda<-"C:/Users/Benra/Dropbox/Trabajo/Leuphana/working papers/Enabling conditions for restoration/Literature/Hickel et al 2022. imperialist appropiation.pdf"#ODA: official development assistance->aid flows
+
+oda_list<-extract_tables(oda, pages=11, output = "data.frame")%>%as.data.frame()
+columnas<-oda_list[,c(4:6)]
+columnas1<-oda_list[,c(7:9)]
+oda_list<-oda_list[,-c(4:9)]
+
+oda_list<-rbind(oda_list, setNames(columnas, names(oda_list)))#, setNames(columnas1), names(oda_list))
+oda_list<-rbind(oda_list, setNames(columnas1, names(oda_list)))
+
+
+data.table(colnames(oda_list))#colnames
+
+
+colnames(oda_list)[c(1:3)]<-c("Country","donations", "IMF")
+#oda_list<-oda_list[c(1,2)]
+oda_list$Country#netherlands and netherlands antilles are problematic, so delete netherland antilles, also delete former USSR 
+oda_list<-oda_list[-c(61,123),]
+oda_list$ISO3<-countrycode(oda_list$Country,"country.name","iso3c" )#now make country codes compatible
+
+#merge
+box_pledges1<-left_join(box_pledges1,oda_list[c("ISO3","IMF")], by="ISO3")
+
+#tidy
+
+box_pledges1<-box_pledges1%>%
+   mutate(global_region=case_when(IMF=="not-advanced"~"GS", IMF=="advanced"~"GN", TRUE~IMF))
+
+box_pledges1<-box_pledges1%>%
+  mutate(global_region = if_else(is.na(global_region), "GS", global_region))
+
+print(box_pledges1)
+
 
 #add column with archetype names
-box_pledges1$names<-c("Western Africa, Central America, Bangladesh, high pledges","All geographies, high pledges","Africa and Asia, high pledges","Small African and Asian states, moderate pledges","North Africa and Middle East, moderate pledges","Eastern Europe and Caribbean, moderate pledges","Canada, Scandinavia, Australia/New Zealand modest pledges","Small European and Caribbean states, modest pledges","Western Europe, South Korea, Japan, very low pledges")
+box_pledges1$names<-c("Western Africa, Central America, Bangladesh, high pledges","All geographies, high pledges","Africa and Asia, high pledges","Small African and Asian states, moderate pledges","North Africa and Middle East, moderate pledges","Eastern Europe and Caribbean, moderate pledges","Canada, Scandinavia, Australia/New Zealand, modest pledges","Small European and Caribbean states, modest pledges","Western Europe, South Korea, Japan, very low pledges")
+
 
 
 mi_palette<-c("#1BD9B5", "#F0F200" ,"#7570B3", "#F000DB", "#EE0000" ,"#E6AB02" ,"#2E1900" ,"#267300","#0000FF")# create color-blind friendly palette for following plots
 
 
-##boxplot for pledges in percentage(%) of the total area of countries and in hectares (ha)
+##boxplot for pledges percentage(%) and pledges ha
 
-#percentage pledges (Fig. 1A)
+#percentage pledges
 
-box1<-ggboxplot(box_pledges1, x = "cluster", y = "pledges_perc", fill = "cluster", orientation= "vertical",
-                ylab = "pledges (country's area percentage)", xlab = "Archetype",add = "jitter", add.params = list(color = "black", size=0.5,alpha = 0.5), size=0.4, order=c(1,2,3,4,5,6,7,8,9))+
+box1<-ggboxplot(box_pledges1, x = "new_order", y = "pledges_perc", fill = "new_order", orientation= "vertical",
+                ylab = "pledges (country's area percentage)", xlab = "Archetype", size=0.4, order=c(1,2,3,4,5,6,7,8,9),outlier.shape = NA, show.legend=FALSE)+
   stat_summary(fun =mean, geom = "errorbar", aes(ymax = ..y.., ymin = ..y..),width = .8, size= 1.5,linetype = "solid", color="red") +
   coord_trans(y="log10")+
-  scale_y_continuous(limits = c(NA, 100), breaks = c(0.1,1, 10, 50,100))+
+  scale_y_continuous(limits = c(NA, 120), breaks = c(0.1,1, 10, 50,100))+
+  #ylim(0,100)+
   theme(legend.position = "none")+
+  # theme_classic(base_size = 10) +
+  #geom_hline(aes(yintercept=mean(box_pledges1$pledges_perc))) +# col = "red",lty=1)
   scale_color_manual(values= mi_palette)+
-  scale_fill_manual(values= mi_palette, name="Archetypes", labels=c("(1)Western Africa, Central America
-Bangladesh, high pledges","(2)All geographies, high pledges","(3)Africa and Asia, high pledges","(4)Small African and Asian states, 
-moderate pledges","(5)North Africa and Middle East,
-moderate pledges","(6)Eastern Europe and Caribbean,
-moderate pledges","(7)Canada, Scandinavia, 
-Australia/New Zealand, modest pledges","(8)Small European and Caribbean states, 
-modest pledges","(9)Western Europe, South Korea, 
-Japan, very low pledges"))
+  scale_fill_manual(values= mi_palette)+
+  guides(fill="none")+#, name="Archetypes", labels=c("(1)Western Africa, Central America
+#Bangladesh - high pledges","(2)All geographies, high pledges","(3)Africa and Asia, high pledges","(4)Small African #and Asian states, 
+#moderate pledges","(5)North Africa and Middle East,
+#moderate pledges","(6)Eastern Europe and Caribbean,
+#moderate pledges","(7)Canada, Scandinavia, 
+#Australia/New Zealand, modest pledges","(8)Small European and Caribbean states, 
+#modest pledges","(9)Western Europe, South Korea, 
+#Japan, very low pledges"))+
+  geom_jitter(aes(shape=region,color=global_region, size=1.5))+
+  guides(size="none")+
+  scale_shape_manual(values=c(7:10,12:14))+
+  guides(shape=guide_legend(override.aes = list(size = 12))) +
+scale_color_manual(values=c("GS"="darkgoldenrod4", "GN"="turquoise3"))+
+  guides(color=guide_legend(override.aes = list(size = 12))) +
+  labs(color="Global North-South", shape="IMF world region")+
+  theme(legend.text=element_text(size=12),legend.key.size =unit(0.3, "cm"))
 
 box1
 
 
 box1<-box1+ 
-  annotate("text", x=1:9, y= 100, alpha=.8, fill="white", color="black",lwd=4, label=c("[16]", "[44]","[14]","[8]", "[22]", "[21]", "[34]", "[24]", "[24]"))
+  annotate("text", x=1:9, y= 115, alpha=.8, fill="white", color="black",lwd=4, label=c("[22]", "[44]","[24]","[34]", "[16]", "[14]", "[8]", "[21]", "[24]"))
  
+box1# Fig 1b
 
 
-#for hectare pledges (Fig. 1B)
 
-box2<-ggboxplot(scatter_data, x = "cluster", y = "pledges_ha", fill = "cluster", orientation= "vertical",
-          ylab = "pledges (ha)", xlab = "Archetype",add = "jitter", add.params = list(color = "black", size=0.5,alpha = 0.5),size = 0.4, order=c(1,2,3,4,5,6,7,8,9))+
+#for hectare pledges
+box2<-ggboxplot(box_pledges1, x = "new_order", y = "pledges_ha", fill = "new_order", orientation= "vertical",
+          ylab = "pledges (ha)", xlab = "Archetype",size = 0.4, order=c(1,2,3,4,5,6,7,8,9), outlier.shape = NA, show.legend=FALSE)+
  stat_summary(fun=mean, geom = "errorbar", aes(ymax = ..y.., ymin = ..y..),width = .8, size= 1.5,linetype = "solid", color="red")+
   coord_trans(y="log10")+
-  scale_y_continuous(limits = c(1, 1e8), breaks = c(1, 10, 100, 1000, 10000, 100000,1e6, 1e7))+
+  #scale_y_continuous(limits = c(NA, 100), breaks = c(0.1,1, 10, 50,100))+
+  scale_y_continuous(limits = c(0.01, 1e8), breaks = c(1,10,100, 1000, 10000, 100000,1e6, 1e7))+#, 10000, 100000,
   theme(legend.position="none")+
   scale_color_manual(values= mi_palette)+
-  scale_fill_manual(values= mi_palette, name="Archetypes", labels=c("(1)Western Africa, Central America
-Bangladesh, high pledges","(2)All geographies, high pledges","(3)Africa and Asia, high pledges","(4)Small African and Asian states, 
-moderate pledges","(5)North Africa and Middle East,
-moderate pledges","(6)Eastern Europe and Caribbean,
-moderate pledges","(7)Canada, Scandinavia, 
-Australia/New Zealand, modest pledges","(8)Small European and Caribbean states, 
-modest pledges","(9)Western Europe, South Korea, 
-Japan, very low pledges"))
+  scale_fill_manual(values= mi_palette)+
+  guides(fill="none")+
+  #, name="Archetypes", labels=c("(1)Western Africa, Central America
+#Bangladesh - high pledges","(2)All geographies, high pledges","(3)Africa and Asia, high pledges","(4)Small African #and Asian states, 
+#moderate pledges","(5)North Africa and Middle East,
+#moderate pledges","(6)Eastern Europe and Caribbean,
+#moderate pledges","(7)Canada, Scandinavia, 
+#Australia/New Zealand, modest pledges","(8)Small European and Caribbean states, 
+#modest pledges","(9)Western Europe, South Korea, 
+#Japan, very low pledges"), show.legend=FALSE)+
+geom_jitter(aes(shape=region, color=global_region, size=1.5))+
+  guides(size="none")+
+  scale_shape_manual(values=c(7:10,12:14))+
+  guides(shape=guide_legend(override.aes = list(size = 12)))+
+  scale_color_manual(values=c("GS"="darkgoldenrod4", "GN"="turquoise3"))+
+  guides(color=guide_legend(override.aes = list(size = 12)))+
+  labs(color="Global North-South", shape="IMF world region")+
+  theme(legend.text=element_text(size=12), legend.key.size =unit(0.3, "cm"))
   
-box2
+  
+ box2# Fig 1c
+ 
 
-#combine box1 and box2
-ggarrange(box1, box2, nrow=1, font.label=list(size=18, color="red"), common.legend = TRUE, legend="bottom" )
+ggarrange(box1, box2, nrow=1, font.label=list(size=18, color="red"), legend="right", common.legend = TRUE )
 
 
 #boxplot eHANPP (Fig. 3)
 
+
+#merge initial db_pledges (including raw ehannp values) with box_pledges1 (including new ordered clusters)
+
+scatter_data<-merge(db_pledges, box_pledges1, by="ISO3" )
+
+# arrange according th new order (lowest to highest pledges)
+
 ehanpp_order<-scatter_data%>%
-  group_by(cluster)%>%
+  group_by(new_order)%>%
   summarise(promedio=mean(embodied_land_total, na.rm=TRUE))%>%
   arrange(promedio)#sort increasing order
 
 
+
 #vertical plot
 
-ehanpp_plot<-ggboxplot(scatter_data, x = "cluster", y = "embodied_land_total", fill = "cluster",
-                       ylab = "eHANPP (ha)", xlab = "Archetypes",add = "jitter", add.params = list(color = "black", size=0.5,alpha = 0.8),order=c(1,2,3,4,5,6,7,8,9), size=0.4, font.label=list(size=30))+
+ehanpp_plot<-ggboxplot(scatter_data, x = "new_order", y = "embodied_land_total", fill = "new_order",
+                       ylab = "eHANPP (ha per capita)", xlab = "Archetypes", outlier.shape = NA,order=c(1,2,3,4,5,6,7,8,9), size=0.4, font.label=list(size=30))+
   stat_summary(fun=mean, geom = "errorbar", aes(ymax = ..y.., ymin = ..y..),width = .85, size= 1.2,linetype = "solid", color="red") +
+  #coord_trans(y="log10")+
+  #scale_y_continuous(limits = c(1, 1e6), breaks = c(1, 1000, 1e4, 1e5, 1e6))+
   theme_classic(base_size = 14) +
+  #theme(legend.position = "bottom")+
   geom_abline(slope=0, intercept=0,  col = "black",lty=1) +
   scale_color_manual(values= mi_palette)+
   scale_fill_manual(values= mi_palette, name="Archetypes", labels=c("(1)Western Africa, Central America
-Bangladesh, high pledges","(2)All geographies, high pledges","(3)Africa and Asia, high pledges","(4)Small African and Asian states, 
+Bangladesh - high pledges",
+                                                                    
+
+"(2)All geographies, high pledges
+                                                                    "
+, 
+
+
+"(3)Africa and Asia, high pledges                                  
+                                                                    ",
+"(4)Small African and Asian states, 
 moderate pledges","(5)North Africa and Middle East,
 moderate pledges","(6)Eastern Europe and Caribbean,
 moderate pledges","(7)Canada, Scandinavia, 
 Australia/New Zealand, modest pledges","(8)Small European and Caribbean states, 
 modest pledges","(9)Western Europe, South Korea, 
-Japan, very low pledges"))
+Japan, very low pledges"))+
+  geom_jitter(aes(shape=region, color=global_region, size=1.5))+
+  #guides(shape=guide_legend(override.aes = list(size=8)))+
+  guides(size="none")+
+  scale_shape_manual(values=c(7:10,12:14))+
+  guides(shape=guide_legend(override.aes = list(size = 8)))+
+  scale_color_manual(values=c("GS"="darkgoldenrod4", "GN"="turquoise3"))+
+  guides(color=guide_legend(override.aes = list(size = 12)))+
+  labs(color="Global North-South", shape="IMF world region")+
+  theme(legend.text=element_text(size=12), legend.key.size =unit(0.3, "cm"), legend.key.spacing.y= unit(0.17, "cm"))
  
-windows()
+
 ehanpp_plot+ 
-  annotate("text", x=1:9, y= 135000, alpha=1, fill="white", color="black",lwd=4, label=c("28.7%
-[25.6]", 
-                                                                                         "9.55%
-[11.2]",
-                                                                                         "9.03%
-[9.99]",
-                                                                                         "6.05%
-[14.9]", 
-                                                                                         "4.65%
-[9.61]", 
-                                                                                         "3.8%
-[5.76]", 
-                                                                                         "1.61%
-[2.77]", 
-                                                                                         "1.26%
-[3.40]", 
-                                                                                         "0.37%
-[1.64]"))+
-  coord_cartesian(ylim=c(-150000, 150000))
+  annotate("text", x=c(1:9), y= 500000, alpha=1, fill="white", color="black",lwd=4, label=c("28.7%", "9.55%","9.03%","6.05%", "4.65%", "3.8%", "1.61%", "1.26%", "0.37%"))+
+  coord_cartesian(ylim=c(-500000, 500000))
 
 
-
-##END##
+#END#
