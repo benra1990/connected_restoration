@@ -1,15 +1,13 @@
-##--------------
 ##
-##Script name: The enabling conditions for ecosystem restoration: global challenges in a teleconnected and unequal world
+##Script name: National ecosystem restoration pledges are mismatched with social-ecological enabling conditions
 ##
-##Purpose of script: Develop procedures and statistical analyzes leading to the Figures presented in the paper
+##Purpose of script: Develop procedures and statistical analyzes leading to the Figures presented in the article " National ecosystem restoration pledges are mismatched with social-ecological enabling conditions" in the journal
+Communications Earth and Environment.
 ##
 ##Author: Dr. Felipe Benra
 ##Affiliation: Social-Ecological Systems Institute, School of Sustainability, Leuphana University Lüneburg
 ##
-##Copyright (c) ---
-##
-##--------------
+##Copyright (c): Creative Commons Attribution 4.0 International
 ##
 ##Notes: Description of the input data required to replicate these analyses can be found in Supplementary Table 2
 ##Input data is made available as RData file and all sources are listed in Supplementary Table 4
